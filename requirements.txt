@@ -1,0 +1,33 @@
+# Test framework
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# TTS — customer voice synthesis
+edge-tts>=7.0.0
+
+# STT — transcribe IVR responses (local, no API)
+faster-whisper>=1.0.0
+
+# SIP client — pure Python, no native deps
+pyVoIP>=1.6.8
+audioop-lts>=0.2.1  # polyfill for audioop removed in Python 3.13+
+
+# LLM evaluation
+deepeval>=1.0.0
+ollama>=0.3.0
+
+# Audio handling
+soundfile>=0.12.0
+numpy>=1.26.0
+pydub>=0.25.1
+
+# Config + env
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# PSTN backends — optional, only needed when CALL_BACKEND != local
+twilio>=9.0.0
+signalwire>=3.0.0
+
+# Reporting
+jinja2>=3.1.0

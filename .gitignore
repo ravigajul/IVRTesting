@@ -1,0 +1,25 @@
+# Environment — never commit real credentials
+.env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Test cache
+.pytest_cache/
+.deepeval/
+
+# Generated audio — large binary files, regenerated on first run
+audio/ivr_prompts/
+audio/tmp/
+
+# Call recordings — may contain PII / sensitive conversation data
+reports/
+
+# macOS
+.DS_Store

@@ -1,0 +1,67 @@
+telephony:
+  backend: local           # local | twilio | signalwire
+
+  local:
+    sip_host: "127.0.0.1"
+    sip_port: 5060
+    ivr_server_port: 5061  # mock IVR listens here
+    username: "testcaller"
+    password: "testpass"
+
+  twilio:
+    from_number: "${TWILIO_FROM_NUMBER}"
+    to_number: "${TARGET_IVR_NUMBER}"
+
+  signalwire:
+    from_number: "${SW_FROM_NUMBER}"
+    to_number: "${TARGET_IVR_NUMBER}"
+    space_url: "${SW_SPACE_URL}"
+
+evaluation:
+  model: "llama3.2"
+  ollama_host: "http://localhost:11434"
+  pass_threshold: 0.85
+
+audio:
+  sample_rate: 8000        # 8kHz = narrowband telephony (G.711)
+  channels: 1
+  format: "wav"
+  tmp_dir: "audio/tmp"
+  whisper_model: "base"    # base = fast + good enough; use "small" for better accuracy
+
+network_profiles:
+  clean:
+    latency_ms: 0
+    bandwidth_kbps: 0
+    packet_loss_pct: 0.0
+    description: "VoIP desktop / wired LAN"
+  wired:
+    latency_ms: 20
+    bandwidth_kbps: 1000
+    packet_loss_pct: 0.1
+    description: "Landline / ethernet"
+  wifi_good:
+    latency_ms: 40
+    bandwidth_kbps: 512
+    packet_loss_pct: 0.5
+    description: "Good WiFi"
+  cellular_lte:
+    latency_ms: 120
+    bandwidth_kbps: 128
+    packet_loss_pct: 2.0
+    description: "LTE mobile"
+  cellular_poor:
+    latency_ms: 200
+    bandwidth_kbps: 64
+    packet_loss_pct: 5.0
+    description: "Weak cellular signal"
+  bluetooth:
+    latency_ms: 60
+    bandwidth_kbps: 256
+    packet_loss_pct: 1.0
+    description: "Bluetooth headset"
+  degraded:
+    latency_ms: 300
+    bandwidth_kbps: 32
+    packet_loss_pct: 10.0
+    description: "Edge case / bad signal"
