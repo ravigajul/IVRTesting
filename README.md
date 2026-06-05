@@ -1,15 +1,18 @@
 # IVR Testing Framework
 
-A generic, open-source framework for automated black-box testing of IVR (Interactive Voice Response) and voice bot systems. Simulates a customer calling an IVR, evaluates whether the bot handles interactions correctly, and verifies escalation logic — without any paid SaaS tooling.
+An open-source framework for automated black-box testing of IVR systems and voice bots over real phone calls.
 
-## What It Does
+Traditional IVR testing is manual and expensive — someone calls the number, navigates the menus, and writes down what happened. This framework automates that entire process: it places outbound calls, drives the conversation using synthesized customer voices, transcribes both sides of the call, and evaluates whether the system responded correctly — all without a human in the loop.
 
-- Places automated outbound calls to an IVR (locally or via real PSTN)
-- Drives the caller side with synthesized customer audio (Microsoft Edge TTS)
-- Transcribes IVR responses locally using Whisper
-- Evaluates conversation quality using a local LLM (Ollama)
-- Simulates real-world call conditions: cellular, Bluetooth, packet loss, bandwidth limits
-- Switches between free local testing and live PSTN calls by changing one environment variable
+**What it can test:**
+- Whether an IVR correctly captures customer intent (orders, queries, complaints)
+- Whether escalation to a human agent triggers at the right moments — and doesn't trigger when it shouldn't
+- How the system behaves under degraded call conditions: cellular, Bluetooth, packet loss, low bandwidth
+
+**How it works:**
+The framework is built around a swappable telephony backend — the same test scenarios run locally for free (in-process, no network) or against a real phone number via Twilio or SignalWire, controlled by a single environment variable. Customer audio is synthesized using Microsoft Edge TTS, IVR responses are transcribed locally with OpenAI Whisper, and conversation quality is evaluated using a local LLM via Ollama — no cloud APIs, no per-evaluation cost.
+
+**Stack:** Python · edge-tts · faster-whisper · Ollama · Twilio · DeepEval · pytest
 
 ## Architecture
 
