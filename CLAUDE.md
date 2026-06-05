@@ -26,8 +26,14 @@ python -m pytest tests/test_end_to_end.py -v
 # Run a single test
 python -m pytest tests/test_state_machine.py::TestEscalation::test_explicit_agent_request -v
 
+# Place a real PSTN call (requires CALL_BACKEND=twilio in .env)
+python call.py
+
 # Play an IVR prompt to hear it
 afplay audio/ivr_prompts/greeting.wav
+
+# Replay the most recent call recording
+afplay $(ls -t reports/call_*.mp3 | head -1)
 ```
 
 ## Architecture
@@ -80,14 +86,17 @@ IVR prompts are pre-generated into `audio/ivr_prompts/*.wav` on first `MockIVR()
 
 ### Scenario format
 
-Scenarios are dicts (inline in tests today, will move to `scenarios/*.json`). Required keys:
+Scenarios are dicts (inline in tests today, will move to `scenarios/*.json`). Each turn uses either `customer_says` (for voice AI bots) or `press` (for DTMF button-press IVRs) — not both:
 
 ```python
 {
     "name": str,
     "network_profile": str,        # key from config.yaml network_profiles
-    "customer_voice": str,         # edge-tts voice name
-    "turns": [{"customer_says": str}, ...],
+    "customer_voice": str,         # edge-tts voice name (LocalBackend) or Polly voice (TwilioBackend)
+    "turns": [
+        {"customer_says": "I want a large pepperoni pizza"},  # spoken — voice AI bots
+        {"press": "3"},                                        # DTMF — traditional button-press IVRs
+    ],
     "expected_outcomes": {
         "order_confirmed": bool,
         "escalated_to_agent": bool,
@@ -95,12 +104,22 @@ Scenarios are dicts (inline in tests today, will move to `scenarios/*.json`). Re
 }
 ```
 
+### TwilioBackend (`harness/backends/twilio_backend.py`)
+
+Fully implemented. Key behaviours to know:
+
+- Uses **inline TwiML** passed directly to `calls.create(twiml=...)` — no local server or SSH tunnel needed
+- `GREETING_PAUSE` (default 25s) is the wait before playing the first customer turn. Real IVRs vary — tune this per target. The Papa John's IVR greeting runs ~22s before reaching the menu.
+- Each turn uses `<Say voice="Polly.Joanna">` for speech or `<Play digits="3"/>` for DTMF. Voice is mapped from edge-tts names via `VOICE_MAP` at the top of the file.
+- Recordings are saved to `reports/call_<timestamp>.mp3` and auto-played via `afplay` at the end of `call.py`. The `reports/` directory is gitignored.
+- Twilio lists recordings before the media file is written — `_transcribe()` retries up to 6×10s before failing.
+
 ### What is not yet implemented
 
-- `TwilioBackend` and `SignalWireBackend` — stub files exist, `place_call` raises `NotImplementedError`
+- `SignalWireBackend` — stub exists, `place_call` raises `NotImplementedError`
 - `ScenarioRunner` — scenarios are driven inline by `LocalBackend._drive_caller`
 - LLM evaluation (`deepeval` + Ollama) — package installed, integration not wired
-- `scenarios/*.json` files — scenarios are currently hardcoded in test files
+- `scenarios/*.json` files — scenarios are currently hardcoded in test files and `call.py`
 - Network simulation via macOS `dnctl`/`pfctl` — `apply_audio_profile` handles audio-layer degradation only
 
 ## Key dependencies
