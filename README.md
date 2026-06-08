@@ -72,6 +72,8 @@ ollama pull llama3.2
 
 ## Running Tests
 
+**pytest always uses the local backend.** Setting `CALL_BACKEND=twilio` (or any non-local value) causes pytest to exit immediately with a clear message. Use `call.py` for real PSTN calls.
+
 ```bash
 source .venv/bin/activate
 
@@ -79,16 +81,37 @@ source .venv/bin/activate
 python -m pytest
 
 # Fast unit tests only (no audio I/O, ~instant)
-python -m pytest tests/test_state_machine.py -v
+python -m pytest tests/test_state_machine.py
 
 # Audio pipeline tests (TTS + Whisper, ~30s)
-python -m pytest tests/test_audio.py -v
+python -m pytest tests/test_audio.py
 
 # Full end-to-end call tests (~60-120s)
-python -m pytest tests/test_end_to_end.py -v
+python -m pytest tests/test_end_to_end.py
 
 # Single test
-python -m pytest tests/test_state_machine.py::TestEscalation::test_explicit_agent_request -v
+python -m pytest tests/test_state_machine.py::TestEscalation::test_explicit_agent_request
+```
+
+After any end-to-end run, two reports are written to `reports/`:
+
+| File | Contents |
+|---|---|
+| `report.html` | Self-contained HTML — scenario cards, state-transition flow, inline audio player, ASR mismatch highlighting, diagnosis on failure |
+| `call_<name>_<timestamp>.wav` | Full call recording — IVR prompts + caller turns interleaved with 350ms gaps |
+
+On failure, the terminal output includes a full diagnostic:
+
+```
+  FAIL ✗  happy_path_delivery    12.3s · clean network
+
+  Turn 4  [delivery_pickup → delivery_pickup]  ← STUCK
+    Script: "Delivery please"
+    Heard:  "Livery"  ← ASR mismatch
+
+  ── Diagnosis ─────────────────────────────────────────────────────
+  Turn 4 stuck in delivery_pickup:
+    DELIVERY_TRIGGERS: "delivery" in script but NOT in heard ← ASR dropped the trigger word
 ```
 
 ## Making a Real PSTN Call
@@ -114,13 +137,13 @@ The recording is saved to `reports/` and played back automatically after the cal
 
 ## Switching Backends
 
-The entire test suite runs unchanged. Only `.env` changes:
+`CALL_BACKEND` controls which backend is used by `call.py`. The test suite is hardlocked to `local`.
 
-| `CALL_BACKEND` | What happens |
-|---|---|
-| `local` | In-process MockIVR, free, no network |
-| `twilio` | Real PSTN via Twilio SDK |
-| `signalwire` | Real PSTN via SignalWire (Twilio-compatible) |
+| `CALL_BACKEND` | Used by | What happens |
+|---|---|---|
+| `local` (default) | pytest + call.py | In-process MockIVR, free, no network |
+| `twilio` | call.py only | Real PSTN via Twilio SDK |
+| `signalwire` | call.py only | Real PSTN via SignalWire (Twilio-compatible) |
 
 ## Scenario Format
 
@@ -157,23 +180,26 @@ Applied to audio to simulate real-world conditions (macOS `dnctl`/`pfctl` or aud
 ```
 ivr_server/
   state_machine.py   IVR state machine (pure function, 7 states)
-  mock_ivr.py        In-process mock IVR server
+  mock_ivr.py        In-process mock IVR server + call recorder
   audio_utils.py     TTS synthesis, audio conversion, network degradation
 
 harness/
   backends/
-    base.py            TelephonyBackend ABC + CallResult dataclass
+    base.py            TelephonyBackend ABC + CallResult + TurnDetail dataclasses
     local_backend.py   In-process backend (no SIP/PSTN)
     twilio_backend.py  Twilio PSTN backend
     factory.py         Reads CALL_BACKEND, returns correct backend
+  reporter.py          report_and_assert() — terminal pass/fail reports
+  html_reporter.py     Generates reports/report.html after each test run
 
 tests/
-  test_state_machine.py   Unit tests — instant, no audio
-  test_audio.py           TTS + Whisper pipeline tests
-  test_end_to_end.py      Full call loop via LocalBackend
+  conftest.py           Local-backend guard + HTML report hook
+  test_state_machine.py Unit tests — instant, no audio
+  test_audio.py         TTS + Whisper pipeline tests
+  test_end_to_end.py    Full call loop via LocalBackend
 
 scenarios/             JSON scenario files (in progress)
-reports/               Call recordings — gitignored
+reports/               HTML report + WAV recordings — gitignored
 audio/ivr_prompts/     Cached IVR WAV prompts — gitignored, regenerated on first run
 ```
 

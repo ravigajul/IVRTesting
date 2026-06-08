@@ -11,7 +11,7 @@ source .venv/bin/activate
 ```
 
 ```bash
-# Run all tests
+# Run all tests (always uses LocalBackend — pytest blocks non-local backends)
 python -m pytest
 
 # Run only fast unit tests (no audio I/O, ~instant)
@@ -20,20 +20,23 @@ python -m pytest tests/test_state_machine.py -v
 # Run audio pipeline tests (TTS + Whisper, ~30s)
 python -m pytest tests/test_audio.py -v
 
-# Run full end-to-end call tests (slowest, ~60-120s)
+# Run full end-to-end call tests (slowest, ~60-120s); generates reports/report.html
 python -m pytest tests/test_end_to_end.py -v
 
 # Run a single test
 python -m pytest tests/test_state_machine.py::TestEscalation::test_explicit_agent_request -v
 
-# Place a real PSTN call (requires CALL_BACKEND=twilio in .env)
+# Place a real PSTN call (requires CALL_BACKEND=twilio in .env) — NOT for pytest
 python call.py
 
 # Play an IVR prompt to hear it
 afplay audio/ivr_prompts/greeting.wav
 
-# Replay the most recent call recording
-afplay $(ls -t reports/call_*.mp3 | head -1)
+# Replay the most recent local call recording (WAV)
+afplay $(ls -t reports/call_*.wav | head -1)
+
+# Open the HTML test report in browser
+open reports/report.html
 ```
 
 ## Architecture
@@ -59,10 +62,14 @@ IVR target  ←  MockIVR in-process (local) or real phone number (PSTN)
 
 `LocalBackend.place_call()` runs two threads:
 
-- **IVR thread** (`MockIVR.run_call`): plays prompts → waits for caller audio → transcribes → advances state machine → loops
-- **Caller thread** (`_drive_caller`): waits for IVR audio → synthesizes next scripted turn → sends audio
+- **IVR thread** (`MockIVR.run_call`): plays prompts → waits for caller audio → transcribes → advances state machine → records audio → loops
+- **Caller thread** (`_drive_caller`): waits for IVR audio → synthesizes next scripted turn → sends audio → returns list of scripted texts
 
 They communicate via two `queue.Queue` objects. `None` on the IVR queue signals end of call.
+
+`_drive_caller` returns the ordered list of scripted texts sent. After the call, `_build_turns_detail()` zips these with `session.transitions` to produce `CallResult.turns_detail` — the per-turn record used by the reporter.
+
+`MockIVR.run_call()` saves a WAV recording of the full call (all audio chunks interleaved with 350ms gaps) to `recording_path` when provided. `LocalBackend` auto-generates this path as `reports/call_<name>_<timestamp>.wav`.
 
 ### State machine (`ivr_server/state_machine.py`)
 
@@ -113,6 +120,25 @@ Fully implemented. Key behaviours to know:
 - Each turn uses `<Say voice="Polly.Joanna">` for speech or `<Play digits="3"/>` for DTMF. Voice is mapped from edge-tts names via `VOICE_MAP` at the top of the file.
 - Recordings are saved to `reports/call_<timestamp>.mp3` and auto-played via `afplay` at the end of `call.py`. The `reports/` directory is gitignored.
 - Twilio lists recordings before the media file is written — `_transcribe()` retries up to 6×10s before failing.
+
+### Reporting (`harness/reporter.py`, `harness/html_reporter.py`)
+
+`report_and_assert(result, scenario)` is the main assertion helper used in e2e tests:
+- **Pass** — prints a turn-by-turn call flow to stdout (always visible; `pytest.ini` sets `-s -v`)
+- **Fail** — raises `AssertionError` whose message IS the full diagnostic report (pytest always shows this)
+
+The diagnostic identifies *why* a turn got stuck by checking the same keyword trigger lists used by the state machine, distinguishing ASR failures (keyword in script but not in heard) from wrong scripted text (keyword absent from both).
+
+`generate_html_report(log, path)` is called by `tests/conftest.py::pytest_sessionfinish` after every run. It writes a self-contained `reports/report.html` with:
+- Summary header (totals, pass/fail count, total duration)
+- Per-scenario cards — collapsed on pass, expanded on fail
+- Inline `<audio>` player linked to the WAV recording for that call
+- Turn-by-turn state-transition flow with ASR-mismatch highlighting
+- Red diagnosis section on failed cards
+
+### Backend rule — pytest is local-only
+
+**Never use TwilioBackend or SignalWireBackend inside pytest.** `tests/conftest.py::pytest_configure` checks `CALL_BACKEND` and exits with code 4 if it is not `local`. Real PSTN calls belong in `call.py` only.
 
 ### What is not yet implemented
 
