@@ -39,6 +39,8 @@ class CallSession:
     order_id: Optional[str] = None
     escalated: bool = False
     transcript: List[dict] = field(default_factory=list)
+    # Each entry: {turn, state_before, caller_text, response_key, state_after}
+    transitions: List[dict] = field(default_factory=list)
 
     def add_turn(self, speaker: str, text: str):
         self.transcript.append({"speaker": speaker, "text": text})

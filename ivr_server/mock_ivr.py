@@ -90,18 +90,22 @@ class MockIVR:
         network_profile: Optional[dict] = None,
         on_state_change: Optional[Callable[[CallSession], None]] = None,
         turn_timeout: float = 20.0,
+        recording_path: Optional[str] = None,
     ) -> CallSession:
         """
         Drive a full IVR conversation.
 
         caller_audio_q: caller puts numpy audio arrays here
         ivr_audio_q:    IVR puts numpy audio arrays here; None signals end of call
+        recording_path: if set, save a WAV of the full call (IVR + caller interleaved)
         Returns the completed CallSession with full transcript.
         """
         session = CallSession()
+        audio_log: list = []  # ordered audio chunks for recording
 
         # Play opening greeting
-        self._play(session, ivr_audio_q, "greeting", network_profile)
+        greeting_audio = self._play(session, ivr_audio_q, "greeting", network_profile)
+        audio_log.append(greeting_audio)
 
         while session.state not in TERMINAL_STATES:
             # Wait for caller's next audio turn
@@ -112,11 +116,22 @@ class MockIVR:
             if network_profile:
                 caller_audio = apply_audio_profile(caller_audio, network_profile)
 
+            audio_log.append(caller_audio)
+
             caller_text = self._transcribe(caller_audio)
             session.add_turn("caller", caller_text)
 
+            state_before = session.state
             new_state, response_key = next_state(session, caller_text)
             session.state = new_state
+
+            session.transitions.append({
+                "turn": len(session.transitions) + 1,
+                "state_before": state_before.value,
+                "caller_text": caller_text,
+                "response_key": response_key,
+                "state_after": new_state.value,
+            })
 
             if on_state_change:
                 on_state_change(session)
@@ -124,9 +139,14 @@ class MockIVR:
             ivr_text = self._build_prompt_text(response_key, session)
             session.add_turn("ivr", ivr_text)
             ivr_audio = self._synthesize_prompt(response_key, ivr_text, network_profile)
+            audio_log.append(ivr_audio)
             ivr_audio_q.put(ivr_audio)
 
         ivr_audio_q.put(None)  # signal end of call to caller
+
+        if recording_path:
+            self._save_recording(audio_log, recording_path)
+
         return session
 
     # ── Audio helpers ────────────────────────────────────────────────────────
@@ -137,13 +157,27 @@ class MockIVR:
         ivr_audio_q: queue.Queue,
         key: str,
         network_profile: Optional[dict],
-    ):
+    ) -> np.ndarray:
         text = PROMPT_TEXTS[key]
         session.add_turn("ivr", text)
         audio = self._load_cached(key)
         if network_profile:
             audio = apply_audio_profile(audio, network_profile)
         ivr_audio_q.put(audio)
+        return audio
+
+    @staticmethod
+    def _save_recording(audio_log: list, recording_path: str) -> None:
+        """Concatenate all audio chunks with short gaps and write a WAV file."""
+        gap = np.zeros(int(8000 * 0.35), dtype=np.float32)  # 350ms silence between turns
+        chunks = []
+        for i, chunk in enumerate(audio_log):
+            chunks.append(chunk.astype(np.float32))
+            if i < len(audio_log) - 1:
+                chunks.append(gap)
+        mixed = np.concatenate(chunks)
+        Path(recording_path).parent.mkdir(parents=True, exist_ok=True)
+        sf.write(recording_path, mixed, samplerate=8000)
 
     def _load_cached(self, key: str) -> np.ndarray:
         return wav_to_array(str(PROMPTS_DIR / f"{key}.wav"))

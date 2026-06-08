@@ -5,6 +5,7 @@ Slower than unit tests (~10-30s per test) due to TTS + Whisper.
 """
 import pytest
 from harness.backends.local_backend import LocalBackend
+from harness.reporter import report_and_assert
 from ivr_server.state_machine import IVRState
 
 
@@ -60,38 +61,24 @@ ESCALATION_MID_ORDER_SCENARIO = {
 class TestEndToEnd:
     def test_happy_path_order_confirmed(self, backend):
         result = backend.place_call(target="local", scenario=HAPPY_PATH_SCENARIO)
-
-        assert result.order_confirmed, (
-            f"Order not confirmed.\nTranscript:\n"
-            + "\n".join(f"  [{t['speaker']}] {t['text']}" for t in result.transcript)
+        report_and_assert(result, HAPPY_PATH_SCENARIO)
+        assert result.order_id is not None and result.order_id.startswith("ORD"), (
+            f"Expected order_id starting with 'ORD', got: {result.order_id!r}"
         )
-        assert not result.escalated_to_agent
-        assert result.order_id is not None
-        assert result.order_id.startswith("ORD")
 
     def test_escalation_agent_request(self, backend):
         result = backend.place_call(target="local", scenario=ESCALATION_SCENARIO)
-
-        assert result.escalated_to_agent, (
-            f"Expected escalation.\nTranscript:\n"
-            + "\n".join(f"  [{t['speaker']}] {t['text']}" for t in result.transcript)
-        )
-        assert not result.order_confirmed
+        report_and_assert(result, ESCALATION_SCENARIO)
 
     def test_escalation_mid_order(self, backend):
         result = backend.place_call(target="local", scenario=ESCALATION_MID_ORDER_SCENARIO)
-
-        assert result.escalated_to_agent, (
-            f"Expected mid-order escalation.\nTranscript:\n"
-            + "\n".join(f"  [{t['speaker']}] {t['text']}" for t in result.transcript)
-        )
+        report_and_assert(result, ESCALATION_MID_ORDER_SCENARIO)
 
     def test_transcript_has_both_speakers(self, backend):
         result = backend.place_call(target="local", scenario=HAPPY_PATH_SCENARIO)
-
         speakers = {t["speaker"] for t in result.transcript}
-        assert "ivr" in speakers
-        assert "caller" in speakers
+        assert "ivr" in speakers, "No IVR turns in transcript"
+        assert "caller" in speakers, "No caller turns in transcript"
 
     def test_call_duration_recorded(self, backend):
         result = backend.place_call(target="local", scenario=HAPPY_PATH_SCENARIO)
